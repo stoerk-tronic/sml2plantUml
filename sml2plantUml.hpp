@@ -439,6 +439,8 @@ struct dump_transitions<typename sml::aux::type_list<
  * `sml::sm<T>`, which would require all action/guard dependency types
  * to be complete — a problem when the generator runs as a standalone
  * tool without the embedded-platform headers.
+ * 
+ * \tparam T has a function call operator that return the transition table of a Boost SML state machine.
  */
 template <class T> void dump(std::ostream &out) noexcept {
   using transitions_t = decltype(std::declval<T>()());
