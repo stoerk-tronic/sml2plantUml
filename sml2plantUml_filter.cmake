@@ -60,6 +60,10 @@ if(NOT lock_result STREQUAL "0")
         "(lock_result='${lock_result}'). "
         "If your builds are slow or highly parallel, increase DOC_FILTER_LOCK_TIMEOUT.")
 endif()
+# Explicitly remove the CMake cache before configuring so a generator change
+# (e.g. switching between Ninja and Unix Makefiles) never causes a mismatch
+# error.
+file(REMOVE "${BUILD_DIR}/CMakeCache.txt")
 execute_process(
     COMMAND
         cmake --fresh -G Ninja -S "${SOURCE_DIR}" -B "${BUILD_DIR}" ${TOOLCHAIN_ARG}
