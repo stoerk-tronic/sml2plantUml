@@ -64,6 +64,7 @@ endif()
 # (e.g. switching between Ninja and Unix Makefiles) never causes a mismatch
 # error.
 file(REMOVE "${BUILD_DIR}/CMakeCache.txt")
+file(REMOVE_RECURSE "${BUILD_DIR}/CMakeFiles")
 execute_process(
     COMMAND
         cmake --fresh -G Ninja -S "${SOURCE_DIR}" -B "${BUILD_DIR}" ${TOOLCHAIN_ARG}
