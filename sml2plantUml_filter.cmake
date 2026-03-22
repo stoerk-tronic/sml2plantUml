@@ -60,11 +60,18 @@ if(NOT lock_result STREQUAL "0")
         "(lock_result='${lock_result}'). "
         "If your builds are slow or highly parallel, increase DOC_FILTER_LOCK_TIMEOUT.")
 endif()
+# Use Ninja generator if available, otherwise fall back to the default generator.
+# MSBuild may have issues with parallel builds and file locking, so prefer Ninja if it's available.
+find_program(_NINJA_EXECUTABLE ninja)
+if(_NINJA_EXECUTABLE)
+    set(GENERATOR_ARG -G Ninja)
+endif()
+
 # Explicitly remove the entire build directory to ensure a clean state.
 file(REMOVE_RECURSE "${BUILD_DIR}")
 execute_process(
     COMMAND
-        cmake --fresh -G Ninja -S "${SOURCE_DIR}" -B "${BUILD_DIR}" ${TOOLCHAIN_ARG}
+        cmake --fresh ${GENERATOR_ARG} -S "${SOURCE_DIR}" -B "${BUILD_DIR}" ${TOOLCHAIN_ARG}
         ${EXTRA_CXX_FLAGS} ${EXTRA_INCLUDE_DIRS}
         -DHEADER_TO_CHECK="${HEADER_ABS}"
         -DSTATE_MACHINE_NAME="${STATE_MACHINE_NAME}"
