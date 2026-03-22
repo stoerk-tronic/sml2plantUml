@@ -39,6 +39,7 @@ jobs:
         run: |
           cmake -S . -B build -DHEADER_TO_CHECK="exampleSM_state_machine_sml.hpp" -DSTATE_MACHINE_NAME=exampleSM
           cmake --build build
+          rm -rf build
 
       - name: Append PLANTUML_JAR_PATH to Doxyfile (Linux)
         if: runner.os == 'Linux'

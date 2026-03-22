@@ -67,11 +67,9 @@ if(_NINJA_EXECUTABLE)
     set(GENERATOR_ARG -G Ninja)
 endif()
 
-# Explicitly remove the entire build directory to ensure a clean state.
-file(REMOVE_RECURSE "${BUILD_DIR}")
 execute_process(
     COMMAND
-        ${CMAKE_COMMAND} --fresh ${GENERATOR_ARG} -S "${SOURCE_DIR}" -B "${BUILD_DIR}" ${TOOLCHAIN_ARG}
+        ${CMAKE_COMMAND} ${GENERATOR_ARG} -S "${SOURCE_DIR}" -B "${BUILD_DIR}" ${TOOLCHAIN_ARG}
         ${EXTRA_CXX_FLAGS} ${EXTRA_INCLUDE_DIRS}
         -DHEADER_TO_CHECK="${HEADER_ABS}"
         -DSTATE_MACHINE_NAME="${STATE_MACHINE_NAME}"
