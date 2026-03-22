@@ -1,4 +1,27 @@
+# =============================================================================
+# sml2plantUml Doxygen Filter Script
+# =============================================================================
+# This script is invoked by Doxygen as an input filter for state machine header
+# files. It builds and runs a helper tool that generates PlantUML diagrams from
+# Boost.SML state machine definitions, then appends the diagram to the original
+# header content and writes the result to stdout.
+#
+# Usage: cmake -P sml2plantUml_filter.cmake <header_file>
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Configuration
+# -----------------------------------------------------------------------------
+
 set(FILTER_SUFFIX "_state_machine_sml\\.hpp$")
+set(SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}")
+set(BUILD_DIR "${SOURCE_DIR}/build")
+set(LOCK_FILE ".filter.lock")
+set(FILTER_LOCK_TIMEOUT 600)
+
+# -----------------------------------------------------------------------------
+# Input Argument Parsing & Validation
+# -----------------------------------------------------------------------------
 
 # The header file path is passed as the last positional argument.
 # Doxygen calls: <filter> <file>, so the file is always the last argument.
@@ -10,6 +33,24 @@ if(NOT DEFINED HEADER OR HEADER STREQUAL "")
 endif()
 
 get_filename_component(HEADER_ABS "${HEADER}" ABSOLUTE)
+
+# Override lock timeout from environment if valid.
+if(DEFINED ENV{DOC_FILTER_LOCK_TIMEOUT} AND NOT "$ENV{DOC_FILTER_LOCK_TIMEOUT}" STREQUAL "")
+    string(STRIP "$ENV{DOC_FILTER_LOCK_TIMEOUT}" _DOC_FILTER_LOCK_TIMEOUT_STRIPPED)
+    string(REGEX MATCH "^[0-9]+$" _DOC_FILTER_LOCK_TIMEOUT_IS_INT "${_DOC_FILTER_LOCK_TIMEOUT_STRIPPED}")
+    if(_DOC_FILTER_LOCK_TIMEOUT_IS_INT)
+        set(FILTER_LOCK_TIMEOUT "${_DOC_FILTER_LOCK_TIMEOUT_STRIPPED}")
+    else()
+        message(WARNING
+            "Ignoring invalid DOC_FILTER_LOCK_TIMEOUT value '$ENV{DOC_FILTER_LOCK_TIMEOUT}'. "
+            "Expected a non-negative integer number of seconds. Using default ${FILTER_LOCK_TIMEOUT} seconds.")
+    endif()
+endif()
+
+# -----------------------------------------------------------------------------
+# Derive State Machine Name
+# -----------------------------------------------------------------------------
+
 get_filename_component(FILE_NAME "${HEADER}" NAME)
 string(
     REGEX REPLACE ${FILTER_SUFFIX}
@@ -18,11 +59,12 @@ string(
     "${FILE_NAME}"
 )
 
-set(SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}")
-set(BUILD_DIR "${SOURCE_DIR}/build")
+# -----------------------------------------------------------------------------
+# Environment Variable Forwarding
+# -----------------------------------------------------------------------------
 
-# Configure
-# Forward environment variables for toolchain, extra CXX flags, and include directories if they are set
+# Forward environment variables for toolchain, extra CXX flags, and include
+# directories if they are set.
 if(DEFINED ENV{CMAKE_TOOLCHAIN_FILE})
     set(TOOLCHAIN_ARG "-DCMAKE_TOOLCHAIN_FILE=$ENV{CMAKE_TOOLCHAIN_FILE}")
 endif()
@@ -35,23 +77,11 @@ if(DEFINED ENV{DOC_INCLUDE_DIRS})
     set(EXTRA_INCLUDE_DIRS "-DEXTRA_INCLUDE_DIRS=$ENV{DOC_INCLUDE_DIRS}")
 endif()
 
-# Serialize concurrent filter invocations (Doxygen may call this in parallel).
-set(LOCK_FILE ".filter.lock")
+# -----------------------------------------------------------------------------
+# Concurrency Control
+# -----------------------------------------------------------------------------
 
-# Configure lock timeout: use DOC_FILTER_LOCK_TIMEOUT if set, otherwise default to 600 seconds.
-set(FILTER_LOCK_TIMEOUT 600)
-if(DEFINED ENV{DOC_FILTER_LOCK_TIMEOUT} AND NOT "$ENV{DOC_FILTER_LOCK_TIMEOUT}" STREQUAL "")
-    # Strip whitespace and validate that DOC_FILTER_LOCK_TIMEOUT is an integer.
-    string(STRIP "$ENV{DOC_FILTER_LOCK_TIMEOUT}" _DOC_FILTER_LOCK_TIMEOUT_STRIPPED)
-    string(REGEX MATCH "^[0-9]+$" _DOC_FILTER_LOCK_TIMEOUT_IS_INT "${_DOC_FILTER_LOCK_TIMEOUT_STRIPPED}")
-    if(_DOC_FILTER_LOCK_TIMEOUT_IS_INT)
-        set(FILTER_LOCK_TIMEOUT "${_DOC_FILTER_LOCK_TIMEOUT_STRIPPED}")
-    else()
-        message(WARNING
-            "Ignoring invalid DOC_FILTER_LOCK_TIMEOUT value '$ENV{DOC_FILTER_LOCK_TIMEOUT}'. "
-            "Expected a non-negative integer number of seconds. Using default ${FILTER_LOCK_TIMEOUT} seconds.")
-    endif()
-endif()
+# Serialize concurrent filter invocations (Doxygen may call this in parallel).
 
 file(LOCK "${LOCK_FILE}" TIMEOUT ${FILTER_LOCK_TIMEOUT} RESULT_VARIABLE lock_result)
 if(NOT lock_result STREQUAL "0")
@@ -60,16 +90,26 @@ if(NOT lock_result STREQUAL "0")
         "(lock_result='${lock_result}'). "
         "If your builds are slow or highly parallel, increase DOC_FILTER_LOCK_TIMEOUT.")
 endif()
-# Use Ninja generator for the initial configure if available, otherwise fall back to the default generator.
-# MSBuild may have issues with parallel builds and file locking, so prefer Ninja if it's available.
-# Do not override the generator if the build directory is already configured (has a CMakeCache.txt),
-# to avoid CMake generator mismatch errors.
+
+# -----------------------------------------------------------------------------
+# Generator Selection
+# -----------------------------------------------------------------------------
+
+# Use Ninja generator for the initial configure if available, otherwise fall
+# back to the default generator. MSBuild may have issues with parallel builds
+# and file locking, so prefer Ninja if it's available.
+# Do not override the generator if the build directory is already configured
+# (has a CMakeCache.txt), to avoid CMake generator mismatch errors.
 if(NOT EXISTS "${BUILD_DIR}/CMakeCache.txt")
     find_program(_NINJA_EXECUTABLE ninja)
     if(_NINJA_EXECUTABLE)
         set(GENERATOR_ARG -G Ninja)
     endif()
 endif()
+
+# -----------------------------------------------------------------------------
+# Configure & Build
+# -----------------------------------------------------------------------------
 
 execute_process(
     COMMAND
@@ -86,7 +126,6 @@ if(NOT configure_result EQUAL 0)
     message(FATAL_ERROR "CMake configure failed")
 endif()
 
-# Build
 execute_process(
     COMMAND ${CMAKE_COMMAND} --build "${BUILD_DIR}"
     OUTPUT_QUIET
@@ -98,14 +137,16 @@ if(NOT build_result EQUAL 0)
     message(FATAL_ERROR "Build failed")
 endif()
 
-# Run
+# -----------------------------------------------------------------------------
+# Run Helper Tool
+# -----------------------------------------------------------------------------
+
 if(WIN32)
     set(APP_PATH "${BUILD_DIR}/StateMachine2Puml.exe")
 else()
     set(APP_PATH "${BUILD_DIR}/StateMachine2Puml")
 endif()
 
-# Run the helper and capture its PlantUML output from stdout
 execute_process(
     COMMAND "${APP_PATH}"
     OUTPUT_VARIABLE PUML_CONTENT
@@ -117,6 +158,10 @@ file(LOCK "${LOCK_FILE}" RELEASE)
 if(NOT run_result EQUAL 0)
     message(FATAL_ERROR "Execution failed")
 endif()
+
+# -----------------------------------------------------------------------------
+# Output Generation
+# -----------------------------------------------------------------------------
 
 # Build the documentation comment block.
 string(CONCAT DOC_BLOCK
