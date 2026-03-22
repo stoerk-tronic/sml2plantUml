@@ -36,7 +36,7 @@ if(DEFINED ENV{DOC_INCLUDE_DIRS})
 endif()
 
 # Serialize concurrent filter invocations (Doxygen may call this in parallel).
-set(LOCK_FILE "${BUILD_DIR}/.filter.lock")
+set(LOCK_FILE ".filter.lock")
 
 # Configure lock timeout: use DOC_FILTER_LOCK_TIMEOUT if set, otherwise default to 600 seconds.
 set(FILTER_LOCK_TIMEOUT 600)
@@ -60,11 +60,8 @@ if(NOT lock_result STREQUAL "0")
         "(lock_result='${lock_result}'). "
         "If your builds are slow or highly parallel, increase DOC_FILTER_LOCK_TIMEOUT.")
 endif()
-# Explicitly remove the CMake cache before configuring so a generator change
-# (e.g. switching between Ninja and Unix Makefiles) never causes a mismatch
-# error.
-file(REMOVE "${BUILD_DIR}/CMakeCache.txt")
-file(REMOVE_RECURSE "${BUILD_DIR}/CMakeFiles")
+# Explicitly remove the entire build directory to ensure a clean state.
+file(REMOVE_RECURSE "${BUILD_DIR}")
 execute_process(
     COMMAND
         cmake --fresh -G Ninja -S "${SOURCE_DIR}" -B "${BUILD_DIR}" ${TOOLCHAIN_ARG}
