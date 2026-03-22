@@ -60,11 +60,15 @@ if(NOT lock_result STREQUAL "0")
         "(lock_result='${lock_result}'). "
         "If your builds are slow or highly parallel, increase DOC_FILTER_LOCK_TIMEOUT.")
 endif()
-# Use Ninja generator if available, otherwise fall back to the default generator.
+# Use Ninja generator for the initial configure if available, otherwise fall back to the default generator.
 # MSBuild may have issues with parallel builds and file locking, so prefer Ninja if it's available.
-find_program(_NINJA_EXECUTABLE ninja)
-if(_NINJA_EXECUTABLE)
-    set(GENERATOR_ARG -G Ninja)
+# Do not override the generator if the build directory is already configured (has a CMakeCache.txt),
+# to avoid CMake generator mismatch errors.
+if(NOT EXISTS "${BUILD_DIR}/CMakeCache.txt")
+    find_program(_NINJA_EXECUTABLE ninja)
+    if(_NINJA_EXECUTABLE)
+        set(GENERATOR_ARG -G Ninja)
+    endif()
 endif()
 
 execute_process(
