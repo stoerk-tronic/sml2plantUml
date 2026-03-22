@@ -41,7 +41,16 @@ set(LOCK_FILE "${BUILD_DIR}/.filter.lock")
 # Configure lock timeout: use DOC_FILTER_LOCK_TIMEOUT if set, otherwise default to 600 seconds.
 set(FILTER_LOCK_TIMEOUT 600)
 if(DEFINED ENV{DOC_FILTER_LOCK_TIMEOUT} AND NOT "$ENV{DOC_FILTER_LOCK_TIMEOUT}" STREQUAL "")
-    set(FILTER_LOCK_TIMEOUT "$ENV{DOC_FILTER_LOCK_TIMEOUT}")
+    # Strip whitespace and validate that DOC_FILTER_LOCK_TIMEOUT is an integer.
+    string(STRIP "$ENV{DOC_FILTER_LOCK_TIMEOUT}" _DOC_FILTER_LOCK_TIMEOUT_STRIPPED)
+    string(REGEX MATCH "^[0-9]+$" _DOC_FILTER_LOCK_TIMEOUT_IS_INT "${_DOC_FILTER_LOCK_TIMEOUT_STRIPPED}")
+    if(_DOC_FILTER_LOCK_TIMEOUT_IS_INT)
+        set(FILTER_LOCK_TIMEOUT "${_DOC_FILTER_LOCK_TIMEOUT_STRIPPED}")
+    else()
+        message(WARNING
+            "Ignoring invalid DOC_FILTER_LOCK_TIMEOUT value '$ENV{DOC_FILTER_LOCK_TIMEOUT}'. "
+            "Expected a non-negative integer number of seconds. Using default ${FILTER_LOCK_TIMEOUT} seconds.")
+    endif()
 endif()
 
 file(LOCK "${LOCK_FILE}" TIMEOUT ${FILTER_LOCK_TIMEOUT} RESULT_VARIABLE lock_result)
