@@ -6,27 +6,60 @@ on:
 
 permissions:
   contents: read
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y doxygen plantuml cmake build-essential
 
-      - name: Append PLANTUML_JAR_PATH to Doxyfile
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install doxygen.install --yes
+          choco install plantuml --yes
+          $doxygen = Get-Command doxygen -ErrorAction SilentlyContinue
+          if (-not $doxygen) {
+            $doxygen = Get-ChildItem -Path "$env:ChocolateyInstall\bin" -Filter "doxygen.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($doxygen) { Split-Path $doxygen.FullName >> $env:GITHUB_PATH }
+          }
+
+      - name: Build helper tool (test preconditions)
+        run: |
+          cmake -S . -B build -DHEADER_TO_CHECK="exampleSM_state_machine_sml.hpp" -DSTATE_MACHINE_NAME=exampleSM
+          cmake --build build
+          cmake -E remove_directory build
+
+      - name: Append PLANTUML_JAR_PATH to Doxyfile (Linux)
+        if: runner.os == 'Linux'
         run: |
           PLANTUML_DIR=$(dirname $(dpkg -L plantuml | grep '\.jar$' | head -n1))
           echo "PLANTUML_JAR_PATH=${PLANTUML_DIR}/" >> exampleSM.Doxyfile
 
+      - name: Append PLANTUML_JAR_PATH to Doxyfile (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $jar = Get-ChildItem -Path "$env:ChocolateyInstall\lib\plantuml" -Filter "plantuml*.jar" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $jar) { Write-Error "plantuml jar not found"; exit 1 }
+          $plantUmlDir = $jar.DirectoryName -replace '\\','/'
+          Add-Content -Path exampleSM.Doxyfile -Value "PLANTUML_JAR_PATH=$plantUmlDir/"
       - name: Run Doxygen
         run: doxygen exampleSM.Doxyfile
 
       - name: Check for generated PlantUML diagram
+        shell: bash
         run: |
           if ls html/inline_umlgraph* 1>/dev/null 2>&1; then
             echo "Success: found inline_umlgraph file(s) in html/"

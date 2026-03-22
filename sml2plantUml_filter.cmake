@@ -35,9 +35,45 @@ if(DEFINED ENV{DOC_INCLUDE_DIRS})
     set(EXTRA_INCLUDE_DIRS "-DEXTRA_INCLUDE_DIRS=$ENV{DOC_INCLUDE_DIRS}")
 endif()
 
+# Serialize concurrent filter invocations (Doxygen may call this in parallel).
+set(LOCK_FILE ".filter.lock")
+
+# Configure lock timeout: use DOC_FILTER_LOCK_TIMEOUT if set, otherwise default to 600 seconds.
+set(FILTER_LOCK_TIMEOUT 600)
+if(DEFINED ENV{DOC_FILTER_LOCK_TIMEOUT} AND NOT "$ENV{DOC_FILTER_LOCK_TIMEOUT}" STREQUAL "")
+    # Strip whitespace and validate that DOC_FILTER_LOCK_TIMEOUT is an integer.
+    string(STRIP "$ENV{DOC_FILTER_LOCK_TIMEOUT}" _DOC_FILTER_LOCK_TIMEOUT_STRIPPED)
+    string(REGEX MATCH "^[0-9]+$" _DOC_FILTER_LOCK_TIMEOUT_IS_INT "${_DOC_FILTER_LOCK_TIMEOUT_STRIPPED}")
+    if(_DOC_FILTER_LOCK_TIMEOUT_IS_INT)
+        set(FILTER_LOCK_TIMEOUT "${_DOC_FILTER_LOCK_TIMEOUT_STRIPPED}")
+    else()
+        message(WARNING
+            "Ignoring invalid DOC_FILTER_LOCK_TIMEOUT value '$ENV{DOC_FILTER_LOCK_TIMEOUT}'. "
+            "Expected a non-negative integer number of seconds. Using default ${FILTER_LOCK_TIMEOUT} seconds.")
+    endif()
+endif()
+
+file(LOCK "${LOCK_FILE}" TIMEOUT ${FILTER_LOCK_TIMEOUT} RESULT_VARIABLE lock_result)
+if(NOT lock_result STREQUAL "0")
+    message(FATAL_ERROR
+        "Failed to acquire filter lock file '${LOCK_FILE}' within ${FILTER_LOCK_TIMEOUT} seconds "
+        "(lock_result='${lock_result}'). "
+        "If your builds are slow or highly parallel, increase DOC_FILTER_LOCK_TIMEOUT.")
+endif()
+# Use Ninja generator for the initial configure if available, otherwise fall back to the default generator.
+# MSBuild may have issues with parallel builds and file locking, so prefer Ninja if it's available.
+# Do not override the generator if the build directory is already configured (has a CMakeCache.txt),
+# to avoid CMake generator mismatch errors.
+if(NOT EXISTS "${BUILD_DIR}/CMakeCache.txt")
+    find_program(_NINJA_EXECUTABLE ninja)
+    if(_NINJA_EXECUTABLE)
+        set(GENERATOR_ARG -G Ninja)
+    endif()
+endif()
+
 execute_process(
     COMMAND
-        cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" ${TOOLCHAIN_ARG}
+        ${CMAKE_COMMAND} ${GENERATOR_ARG} -S "${SOURCE_DIR}" -B "${BUILD_DIR}" ${TOOLCHAIN_ARG}
         ${EXTRA_CXX_FLAGS} ${EXTRA_INCLUDE_DIRS}
         -DHEADER_TO_CHECK="${HEADER_ABS}"
         -DSTATE_MACHINE_NAME="${STATE_MACHINE_NAME}"
@@ -46,17 +82,19 @@ execute_process(
 )
 
 if(NOT configure_result EQUAL 0)
+    file(LOCK "${LOCK_FILE}" RELEASE)
     message(FATAL_ERROR "CMake configure failed")
 endif()
 
 # Build
 execute_process(
-    COMMAND cmake --build "${BUILD_DIR}"
+    COMMAND ${CMAKE_COMMAND} --build "${BUILD_DIR}"
     OUTPUT_QUIET
     RESULT_VARIABLE build_result
 )
 
 if(NOT build_result EQUAL 0)
+    file(LOCK "${LOCK_FILE}" RELEASE)
     message(FATAL_ERROR "Build failed")
 endif()
 
@@ -74,6 +112,8 @@ execute_process(
     RESULT_VARIABLE run_result
 )
 
+file(LOCK "${LOCK_FILE}" RELEASE)
+
 if(NOT run_result EQUAL 0)
     message(FATAL_ERROR "Execution failed")
 endif()
@@ -90,6 +130,12 @@ string(CONCAT DOC_BLOCK
 # CMake's message() writes to stderr, so we write to a temp file and use
 # cmake -E cat which outputs to stdout.
 file(READ "${HEADER_ABS}" CONTENT)
-set(FILTER_OUTPUT_FILE "${BUILD_DIR}/_filter_output.tmp")
+set(FILTER_OUTPUT_FILE "${BUILD_DIR}/_filter_output_${STATE_MACHINE_NAME}.tmp")
 file(WRITE "${FILTER_OUTPUT_FILE}" "${CONTENT}\n${DOC_BLOCK}")
-execute_process(COMMAND ${CMAKE_COMMAND} -E cat "${FILTER_OUTPUT_FILE}")
+execute_process(
+    COMMAND ${CMAKE_COMMAND} -E cat "${FILTER_OUTPUT_FILE}"
+    RESULT_VARIABLE cat_result
+)
+if(cat_result EQUAL 0)
+    file(REMOVE "${FILTER_OUTPUT_FILE}")
+endif()
