@@ -1,0 +1,37 @@
+name: Test Doxygen PlantUML Filter
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y doxygen plantuml cmake build-essential
+
+      - name: Append PLANTUML_JAR_PATH to Doxyfile
+        run: |
+          PLANTUML_DIR=$(dirname $(dpkg -L plantuml | grep '\.jar$' | head -n1))
+          echo "PLANTUML_JAR_PATH=${PLANTUML_DIR}/" >> exampleSM.Doxyfile
+
+      - name: Run Doxygen
+        run: doxygen exampleSM.Doxyfile
+
+      - name: Check for generated PlantUML diagram
+        run: |
+          if ls html/inline_umlgraph* 1>/dev/null 2>&1; then
+            echo "Success: found inline_umlgraph file(s) in html/"
+            ls html/inline_umlgraph*
+          else
+            echo "Failure: no file starting with 'inline_umlgraph' found in html/"
+            exit 1
+          fi
